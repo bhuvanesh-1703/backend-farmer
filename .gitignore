@@ -20,7 +20,7 @@ pnpm-debug.log*
 lerna-debug.log*
 
 # Ignore backend uploads so we don't commit user files
-backend/uploads/
+uploads/
 
 # Ignore editor-specific files
 .idea/
