@@ -19,8 +19,7 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-# Ignore backend uploads so we don't commit user files
-uploads/
+
 
 # Ignore editor-specific files
 .idea/
