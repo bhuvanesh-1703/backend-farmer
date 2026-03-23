@@ -3,111 +3,148 @@ const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const { sendEmail } = require("../nodeMailer/mailSender");
 
+// ================= REGISTER =================
+
 const register = async (req, res) => {
   try {
+
     const { username, name, email, phonenumber, password } = req.body;
     const finalUsername = username || name;
 
-    console.log("Registration attempt for email:", email);
-
     if (!email || !password || !finalUsername) {
-       return res.status(400).json({ success: false, message: "Missing required fields: email, password, and (username or name)" });
+      return res.status(400).json({
+        success: false,
+        message: "Email, password and username required"
+      });
     }
 
-    const [existingUser] = await db.query("SELECT * FROM users WHERE email=?", [
-      email,
-    ]);
-
-    console.log("Existing user query result:", existingUser);
-
-    if (existingUser.length > 0) {
-      return res
-        .status(400)
-        .json({ success: false, message: "users already register" });
-    }
-
-    const hashPassword = await bcrypt.hash(password, 10);
-
-    const [users] = await db.query(
-      "INSERT INTO users (username,email,password,phonenumber) values (?,?,?,?)",
-      [finalUsername, email, hashPassword, phonenumber],
+    // Check existing user
+    const [existingUser] = await db.query(
+      "SELECT * FROM users WHERE email = ?",
+      [email]
     );
 
-    // Send Welcome Email
-    const emailHtml = `
-      <h1>Welcome to Farmer Market, ${username}!</h1>
-      <p>Thank you for registering</p>
+    if (existingUser.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: "User already registered"
+      });
+    }
+
+    // Hash password
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Insert user
+    const [result] = await db.query(
+      "INSERT INTO users (username,email,password,phonenumber) VALUES (?,?,?,?)",
+      [finalUsername, email, hashedPassword, phonenumber]
+    );
+
+    // Send welcome email (optional)
+    try {
+
+      const emailHtml = `
+      <h1>Welcome to Farmer Market, ${finalUsername}!</h1>
+      <p>Thank you for registering.</p>
       <p>You can now browse and buy fresh organic products directly from local farmers.</p>
       <br/>
-     
-      <p>The Farmer Market</p>
-    `;
-    await sendEmail(email, "Welcome to Farmer Market", emailHtml);
+      <p>Team Farmer Market</p>
+      `;
 
-    res.status(200).json({
+      await sendEmail(email, "Welcome to Farmer Market", emailHtml);
+
+    } catch (emailError) {
+      console.log("Email sending failed:", emailError.message);
+    }
+
+    return res.status(201).json({
       success: true,
-      message: "user register successfully",
-      data: users,
+      message: "User registered successfully",
+      userId: result.insertId
     });
-  } catch (err) {
-    console.error("Registration Error:", err);
-    res.status(500).json({ 
-      success: false, 
-      message: "failed to create user", 
-      error: err.message,
-      stack: process.env.NODE_ENV === 'production' ? null : err.stack
+
+  } catch (error) {
+
+    console.error("Register Error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to create user",
+      error: error.message
     });
   }
 };
+
+
+// ================= LOGIN =================
 
 const login = async (req, res) => {
+
   try {
+
     const { email, password } = req.body;
-    // console.log(`Login attempt for email: "${email}"`);
-    // console.log(`Password received: "${password}" (Length: ${password.length})`);
-    
-    const [users] = await db.query("SELECT * FROM users WHERE email = ?", [
-      email,
-    ]);
 
-    if (users.length===0) {
-      // console.log("Login failed: User not found");
-      return res.status(400).json({ success: false, message: "user not found" });
+    if (!email || !password) {
+      return res.status(400).json({
+        success:false,
+        message:"Email and password required"
+      });
     }
 
-    const isMatch = await bcrypt.compare(password, users[0].password);
+    const [users] = await db.query(
+      "SELECT * FROM users WHERE email = ?",
+      [email]
+    );
+
+    if (users.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "User not found"
+      });
+    }
+
+    const user = users[0];
+
+    const isMatch = await bcrypt.compare(password, user.password);
+
     if (!isMatch) {
-      // console.log("Login failed: Invalid password");
-      return res
-        .status(400)
-        .json({ success: false, message: "invalid password" });
+      return res.status(400).json({
+        success: false,
+        message: "Invalid password"
+      });
     }
 
-    const token = jwt.sign({ user_id: users[0].id }, process.env.SECRET_KEY, {
-      expiresIn: "1d",
+    const token = jwt.sign(
+      { user_id: user.id },
+      process.env.SECRET_KEY,
+      { expiresIn: "1d" }
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Login successful",
+      data: {
+        token,
+        user: {
+          id: user.id,
+          username: user.username,
+          email: user.email
+        }
+      }
     });
 
-    // console.log("Login successful for:", email);
-    return res
-      .status(200)
-      .json({
-        success: true,
-        message: "login succesfully",
-        data: { token, userData: users[0] },
-
-        
-      } );
-     
-      
   } catch (error) {
-    console.error("Login catch error:", error);
+
+    console.error("Login Error:", error);
+
     return res.status(500).json({
       success:false,
-      message:"failed to login", 
-      error: error.message,
-      stack: process.env.NODE_ENV === 'production' ? null : error.stack
-    })
+      message:"Failed to login",
+      error:error.message
+    });
+
   }
+
 };
 
-module.exports={login,register}
+module.exports = { register, login };
