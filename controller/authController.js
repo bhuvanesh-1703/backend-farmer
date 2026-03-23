@@ -5,9 +5,14 @@ const { sendEmail } = require("../nodeMailer/mailSender");
 
 const register = async (req, res) => {
   try {
-    const { username, email, phonenumber, password } = req.body;
+    const { username, name, email, phonenumber, password } = req.body;
+    const finalUsername = username || name;
 
     console.log("Registration attempt for email:", email);
+
+    if (!email || !password || !finalUsername) {
+       return res.status(400).json({ success: false, message: "Missing required fields: email, password, and (username or name)" });
+    }
 
     const [existingUser] = await db.query("SELECT * FROM users WHERE email=?", [
       email,
@@ -24,8 +29,8 @@ const register = async (req, res) => {
     const hashPassword = await bcrypt.hash(password, 10);
 
     const [users] = await db.query(
-      "INSERT INTO users (username,email,password,phonenumber)values(?,?,?,?)",
-      [username, email, hashPassword, phonenumber],
+      "INSERT INTO users (username,email,password,phonenumber) values (?,?,?,?)",
+      [finalUsername, email, hashPassword, phonenumber],
     );
 
     // Send Welcome Email
@@ -46,7 +51,12 @@ const register = async (req, res) => {
     });
   } catch (err) {
     console.error("Registration Error:", err);
-    res.status(400).json({ success: false, message: "failed to craete user" });
+    res.status(500).json({ 
+      success: false, 
+      message: "failed to create user", 
+      error: err.message,
+      stack: process.env.NODE_ENV === 'production' ? null : err.stack
+    });
   }
 };
 
@@ -91,8 +101,12 @@ const login = async (req, res) => {
       
   } catch (error) {
     console.error("Login catch error:", error);
-    return res.status(400).json({success:false,message:"failed to login", error: error.message})
-
+    return res.status(500).json({
+      success:false,
+      message:"failed to login", 
+      error: error.message,
+      stack: process.env.NODE_ENV === 'production' ? null : error.stack
+    })
   }
 };
 
