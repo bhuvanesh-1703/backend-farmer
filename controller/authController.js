@@ -7,9 +7,13 @@ const register = async (req, res) => {
   try {
     const { username, email, phonenumber, password } = req.body;
 
+    console.log("Registration attempt for email:", email);
+
     const [existingUser] = await db.query("SELECT * FROM users WHERE email=?", [
       email,
     ]);
+
+    console.log("Existing user query result:", existingUser);
 
     if (existingUser.length > 0) {
       return res
