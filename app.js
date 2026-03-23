@@ -1,6 +1,7 @@
+require("dotenv").config();   // FIRST LINE
+
 const express = require("express");
 const app = express();
-const dotenv = require("dotenv");
 const cors = require("cors");
 const userRoute = require("./router/userRoute");
 const productRoute=require("./router/productRoute")
@@ -14,7 +15,7 @@ const mailRouter=require("./nodeMailer/mailRoute")
 const adminRouter=require("./router/adminRoute")
 const notificationRouter=require("./router/notificationRoute")
 
-dotenv.config();
+
 
 app.use(cors());
 app.use(express.json());

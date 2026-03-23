@@ -6,21 +6,21 @@ const db = mysql.createPool({
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
   port: process.env.DB_PORT,
-  ssl: {
-    rejectUnauthorized: false
-  },
+
   waitForConnections: true,
-  connectionLimit: 10
+  connectionLimit: 2,
+  queueLimit: 0
 });
 
-db.getConnection()
-  .then((conn) => {
-    console.log("DB Connected Successfully");
-    conn.release();
-  })
-  .catch((err) => {
-    console.log("DB Connection Failed");
-    console.error(err);
-  });
+// ✅ Test DB connection
+(async () => {
+  try {
+    const connection = await db.getConnection();
+    console.log("✅ MySQL Database Connected Successfully");
+    connection.release();
+  } catch (error) {
+    console.error("❌ MySQL Database Connection Failed:", error.message);
+  }
+})();
 
 module.exports = db;
