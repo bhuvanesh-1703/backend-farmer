@@ -48,8 +48,21 @@ const updateUsers = async (req, res) => {
   try {
     const userId = req.params.id;
 
+    // Whitelist valid columns to prevent SQL errors from extra fields in req.body
+    const validColumns = ["username", "email", "password", "phonenumber", "role", "status"];
+    const updateData = {};
+    Object.keys(req.body).forEach(key => {
+      if (validColumns.includes(key)) {
+        updateData[key] = req.body[key];
+      }
+    });
+
+    if (Object.keys(updateData).length === 0) {
+      return res.status(400).json({ success: false, message: "No valid fields to update" });
+    }
+
     const [userUpdate] = await db.query("UPDATE users SET ? WHERE id = ?", [
-      req.body,
+      updateData,
       userId,
     ]);
 

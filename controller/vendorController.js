@@ -15,7 +15,16 @@ const register = async (req, res) => {
     const [existingVendor] = await db.query("SELECT * FROM vendors WHERE email=?", [email]);
 
     if (existingVendor.length > 0) {
-      return res.status(400).json({ success: false, message: "Email already registered" });
+      return res.status(400).json({ success: false, message: "Email already registered as a vendor" });
+    }
+
+    // Check if email belongs to a user
+    const [existingUser] = await db.query("SELECT * FROM users WHERE email=?", [email]);
+    if (existingUser.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Email already registered as a user. Please use a different email or log in as a user."
+      });
     }
 
     const hashPassword = await bcrypt.hash(password, 10);

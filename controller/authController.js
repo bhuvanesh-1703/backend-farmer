@@ -27,7 +27,20 @@ const register = async (req, res) => {
     if (existingUser.length > 0) {
       return res.status(400).json({
         success: false,
-        message: "User already registered"
+        message: "Email already registered as a user"
+      });
+    }
+
+    // Check if email belongs to a vendor (Optional sync check)
+    const [existingVendor] = await db.query(
+      "SELECT * FROM vendors WHERE email = ?",
+      [email]
+    );
+
+    if (existingVendor.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Email already registered as a vendor. Please use a different email or log in as a vendor."
       });
     }
 

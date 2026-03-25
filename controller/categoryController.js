@@ -19,7 +19,7 @@ const getProductsByCategory = async (req, res) => {
     const { id } = req.params;
 
     const [products] = await db.query(
-      "SELECT * FROM product WHERE categories_id = ?",
+      "SELECT * FROM products WHERE categories_id = ?",
       [id]
     );
 
