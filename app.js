@@ -17,7 +17,7 @@ const notificationRouter=require("./router/notificationRoute")
 
 
 
-app.use(cors());
+app.use(cors({ origin: 'https://final-former-websites.vercel.app' }));
 app.use(express.json());
 
 app.get("/", (req, res) => {
