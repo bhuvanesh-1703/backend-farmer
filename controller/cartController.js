@@ -64,9 +64,9 @@ const getCart = async (req, res) => {
         populate: { path: "categories_id" }
       });
 
-    // Transform for frontend compatibility if needed
+    
     const transformedCart = cart.map(item => {
-        const obj = item.toObject();
+        const obj = item.toJSON();
         if (obj.product_id) {
             obj.name = obj.product_id.name;
             obj.price = obj.product_id.price;
@@ -74,6 +74,7 @@ const getCart = async (req, res) => {
             if (obj.product_id.categories_id) {
                 obj.category_name = obj.product_id.categories_id.category_name;
             }
+            obj.product_id = obj.product_id.id; 
         }
         return obj;
     });

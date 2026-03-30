@@ -18,25 +18,48 @@ const getOrders = async (req, res) => {
       .populate("products.product_id", "name image price vendor_id")
       .sort({ created_at: -1 });
 
-    // If vendorId is provided, filter orders that contain products from that vendor
-    if (vendorId) {
-      orders = orders.map(order => {
-        const vendorProducts = order.products.filter(item => 
-          item.product_id && item.product_id.vendor_id && item.product_id.vendor_id.toString() === vendorId
-        );
-        if (vendorProducts.length > 0) {
-          const orderObj = order.toObject();
-          orderObj.products = vendorProducts;
-          return orderObj;
+    const transformedOrders = orders.map(order => {
+        const orderObj = order.toJSON();
+        
+
+        if (orderObj.user_id) {
+            orderObj.customer_name = orderObj.user_id.username;
+            orderObj.customer_email = orderObj.user_id.email;
+            orderObj.user_id = orderObj.user_id._id; 
         }
-        return null;
-      }).filter(Boolean);
-    }
+
+    
+        if (orderObj.products && Array.isArray(orderObj.products)) {
+            orderObj.products = orderObj.products.map(item => {
+                const prodDetails = item.product_id || {};
+                return {
+                    id: item._id,
+                    product_id: prodDetails.id || prodDetails._id,
+                    name: prodDetails.name,
+                    image: prodDetails.image,
+                    price: item.price,
+                    quantity: item.quantity,
+                    vendor_id: prodDetails.vendor_id
+                };
+            });
+        }
+
+        // If vendorId is provided, filter this order's products to only those from the vendor
+        if (vendorId) {
+            orderObj.products = orderObj.products.filter(prod => 
+                prod.vendor_id && prod.vendor_id.toString() === vendorId
+            );
+            if (orderObj.products.length === 0) {
+                return null;
+            }
+        }
+        return orderObj;
+    }).filter(Boolean);
 
     res.status(200).json({
       success: true,
       message: "Orders fetched successfully",
-      data: orders,
+      data: transformedOrders,
     });
   } catch (error) {
     console.error("Get Orders Error:", error);
