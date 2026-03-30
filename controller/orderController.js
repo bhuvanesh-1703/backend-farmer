@@ -1,59 +1,36 @@
-const db = require("../DB_connection/db");
+const Order = require("../models/Order");
+const Product = require("../models/Product");
+const User = require("../models/User");
+const Cart = require("../models/Cart");
 const { sendEmail } = require("../nodeMailer/mailSender");
-
 
 const getOrders = async (req, res) => {
   try {
     const { userId, vendorId } = req.query;
 
-    let query = `
-      SELECT DISTINCT o.*, u.username AS customer_name, u.email AS customer_email, u.phonenumber AS customer_phone
-      FROM orders o
-      LEFT JOIN users u ON o.user_id = u.id
-      JOIN order_items oi ON o.id = oi.order_id
-      JOIN products p ON oi.product_id = p.id
-    `;
-
-    const params = [];
-
+    let filter = {};
     if (userId) {
-      query += ` WHERE o.user_id = ? `;
-      params.push(userId);
-    } else if (vendorId) {
-      query += ` WHERE p.vendor_id = ? `;
-      params.push(vendorId);
+      filter.user_id = userId;
     }
 
-    query += ` ORDER BY o.created_at DESC`;
+    let orders = await Order.find(filter)
+      .populate("user_id", "username email phonenumber")
+      .populate("products.product_id", "name image price vendor_id")
+      .sort({ created_at: -1 });
 
-    const [orders] = await db.query(query, params);
-
-    // Fetch items for each order and parse shipping address
-    for (let order of orders) {
-      if (typeof order.shipping_address === "string") {
-        try {
-          order.shipping_address = JSON.parse(order.shipping_address);
-        } catch (e) {
-          console.error("Failed to parse shipping address for order:", order.id);
+    // If vendorId is provided, filter orders that contain products from that vendor
+    if (vendorId) {
+      orders = orders.map(order => {
+        const vendorProducts = order.products.filter(item => 
+          item.product_id && item.product_id.vendor_id && item.product_id.vendor_id.toString() === vendorId
+        );
+        if (vendorProducts.length > 0) {
+          const orderObj = order.toObject();
+          orderObj.products = vendorProducts;
+          return orderObj;
         }
-      }
-
-      // Fetch products for this order (filter by vendorId if provided)
-      let itemQuery = `
-         SELECT oi.*, p.name, p.image, p.price 
-         FROM order_items oi
-         JOIN products p ON oi.product_id = p.id
-         WHERE oi.order_id = ?
-      `;
-      let itemParams = [order.id];
-
-      if (vendorId) {
-        itemQuery += ` AND p.vendor_id = ?`;
-        itemParams.push(vendorId);
-      }
-
-      const [items] = await db.query(itemQuery, itemParams);
-      order.products = items;
+        return null;
+      }).filter(Boolean);
     }
 
     res.status(200).json({
@@ -71,8 +48,6 @@ const getOrders = async (req, res) => {
 };
 
 const placeOrder = async (req, res) => {
-  const connection = await db.getConnection();
-
   try {
     const { user_id, products, payment_method, shipping_address } = req.body;
 
@@ -83,116 +58,84 @@ const placeOrder = async (req, res) => {
       });
     }
 
-    await connection.beginTransaction();
+    let totalAmount = 0;
+    const orderProducts = [];
 
     // 1. Validate stock and calculate total
     for (const item of products) {
-      const [productData] = await connection.query(
-        "SELECT price, stock, name FROM products WHERE id = ?",
-        [item.product_id],
-      );
+      const product = await Product.findById(item.product_id);
 
-      if (productData.length === 0) {
-        throw new Error(`Product not found (ID: ${item.product_id})`);
+      if (!product) {
+        return res.status(404).json({ success: false, message: `Product not found (ID: ${item.product_id})` });
       }
 
-      const product = productData[0];
       if (product.stock < item.quantity) {
-        throw new Error(`Insufficient stock for ${product.name}. Available: ${product.stock}`);
+        return res.status(400).json({ success: false, message: `Insufficient stock for ${product.name}. Available: ${product.stock}` });
       }
 
       totalAmount += product.price * item.quantity;
+      orderProducts.push({
+        product_id: product._id,
+        quantity: item.quantity,
+        price: product.price
+      });
     }
 
     // 2. Create the order
-    const [orderResult] = await connection.query(
-      `INSERT INTO orders 
-      (order_id, user_id, total_amount, payment_method, payment_status, order_status, shipping_address)
-      VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [
-        "ORD" + Date.now(),
-        user_id,
-        totalAmount,
-        payment_method || "COD",
-        "Pending",
-        "Placed",
-        JSON.stringify(shipping_address),
-      ],
-    );
+    const orderIdDisplay = "ORD" + Date.now();
+    const newOrder = await Order.create({
+      order_id: orderIdDisplay,
+      user_id,
+      total_amount: totalAmount,
+      payment_method: payment_method || "COD",
+      payment_status: "Pending",
+      order_status: "Placed",
+      shipping_address: shipping_address, // Mongoose handles objects
+      products: orderProducts
+    });
 
-    const orderId = orderResult.insertId;
-
-    // 3. Create order items and decrement stock
+    // 3. Decrement stock
     for (const item of products) {
-      const [productData] = await connection.query(
-        "SELECT price FROM products WHERE id = ?",
-        [item.product_id],
-      );
-
-      // Decrement stock
-      await connection.query(
-        "UPDATE products SET stock = stock - ? WHERE id = ?",
-        [item.quantity, item.product_id]
-      );
-
-      await connection.query(
-        `INSERT INTO order_items 
-        (order_id, product_id, quantity, price)
-        VALUES (?, ?, ?, ?)`,
-        [orderId, item.product_id, item.quantity, productData[0].price],
-      );
+      await Product.findByIdAndUpdate(item.product_id, {
+        $inc: { stock: -item.quantity }
+      });
     }
 
     // Clear user cart after placing order
-    await connection.query("DELETE FROM cart WHERE user_id = ?", [user_id]);
-
-    await connection.commit();
+    await Cart.deleteMany({ user_id });
 
     // Send Order Confirmation Email
     try {
-      const [userData] = await connection.query(
-        "SELECT email, username FROM users WHERE id = ?",
-        [user_id],
-      );
-
-      if (userData.length > 0) {
-        const userEmail = userData[0].email;
-        const userName = userData[0].username;
-        const orderIdDisplay = "ORD" + Date.now(); // Note: This is slightly inaccurate as it's not the exact string stored, but consistent with the logic above. Ideally we'd store the generated ID in a variable first.
-
+      const user = await User.findById(user_id);
+      if (user) {
         const emailHtml = `
           <h1>Order Confirmed!</h1>
-          <p>Hi ${userName},</p>
+          <p>Hi ${user.username},</p>
           <p>Your order has been placed successfully.</p>
           <p><strong>Order ID:</strong> ${orderIdDisplay}</p>
           <p><strong>Total Amount:</strong> ₹${totalAmount}</p>
-          <p> order is shipped.</p>
+          <p>Order is shipped.</p>
           <br/>
           <p>Thank you for shopping</p>
         `;
-
-        await sendEmail(userEmail, "Order Confirmation - Farmer Market", emailHtml);
+        await sendEmail(user.email, "Order Confirmation - Farmer Market", emailHtml);
       }
     } catch (mailErr) {
       console.error("Failed to send order confirmation email:", mailErr);
-      // Don't fail the response if only email fails
     }
 
     res.status(201).json({
       success: true,
       message: "Order placed successfully",
+      data: newOrder
     });
   } catch (error) {
-    await connection.rollback();
     console.error("Place Order Error:", error);
-
-    const isStockError = error.message.includes("stock") || error.message.includes("found");
-    res.status(isStockError ? 400 : 500).json({
+    res.status(500).json({
       success: false,
-      message: isStockError ? error.message : "Order placement failed",
+      message: "Order placement failed",
+      error: error.message
     });
-  } finally {
-    connection.release();
   }
 };
 
@@ -201,10 +144,11 @@ const updateOrder = async (req, res) => {
     const { id } = req.params;
     const { order_status } = req.body;
 
-    await db.query(`UPDATE orders SET order_status = ? WHERE id = ?`, [
-      order_status,
-      id,
-    ]);
+    const updatedOrder = await Order.findByIdAndUpdate(id, { order_status }, { new: true });
+
+    if (!updatedOrder) {
+      return res.status(404).json({ success: false, message: "Order not found" });
+    }
 
     res.status(200).json({
       success: true,
@@ -220,43 +164,27 @@ const updateOrder = async (req, res) => {
 };
 
 const deleteOrder = async (req, res) => {
-  const connection = await db.getConnection();
   try {
     const { id } = req.params;
+    const result = await Order.findByIdAndDelete(id);
 
-    await connection.beginTransaction();
-
-    // Delete order items first (foreign key constraints)
-    await connection.query(`DELETE FROM order_items WHERE order_id = ?`, [id]);
-
-    // Delete the order
-    const [result] = await connection.query(`DELETE FROM orders WHERE id = ?`, [
-      id,
-    ]);
-
-    if (result.affectedRows === 0) {
-      await connection.rollback();
+    if (!result) {
       return res.status(404).json({
         success: false,
         message: "Order not found",
       });
     }
 
-    await connection.commit();
-
     res.status(200).json({
       success: true,
       message: "Order deleted successfully",
     });
   } catch (error) {
-    await connection.rollback();
     console.error("Delete Order Error:", error);
     res.status(500).json({
       success: false,
       message: "Order deletion failed",
     });
-  } finally {
-    connection.release();
   }
 };
 

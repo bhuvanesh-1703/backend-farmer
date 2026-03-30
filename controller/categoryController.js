@@ -1,28 +1,19 @@
-const db=require('../DB_connection/db');
+const Category = require("../models/Category");
+const Product = require("../models/Product");
 
-const getCategory=async (req,res)=>{
-    try {
-        const [categories]=await db.query("SELECT * FROM categories")
-        res.status(200).json({success:true,message:"category fetched successfully",categories})
-
-    } catch (error) {
-        res.status(400).json({success:false,message:"category failed to fetch"})
-    }
-}
-
-// productController.js
-
-
+const getCategory = async (req, res) => {
+  try {
+    const categories = await Category.find();
+    res.status(200).json({ success: true, message: "category fetched successfully", categories });
+  } catch (error) {
+    res.status(400).json({ success: false, message: "category failed to fetch" });
+  }
+};
 
 const getProductsByCategory = async (req, res) => {
   try {
     const { id } = req.params;
-
-    const [products] = await db.query(
-      "SELECT * FROM products WHERE categories_id = ?",
-      [id]
-    );
-
+    const products = await Product.find({ categories_id: id });
     res.status(200).json({
       success: true,
       products,
@@ -36,18 +27,18 @@ const getProductsByCategory = async (req, res) => {
   }
 };
 
-
-
 const addCategory = async (req, res) => {
   try {
     const { category_name, subcategory_name, description } = req.body;
     const image = req.file ? req.file.filename : null;
 
-    const [result] = await db.query(
-      "INSERT INTO categories (category_name, subcategory_name, description, image) VALUES (?, ?, ?, ?)",
-      [category_name, subcategory_name, description, image]
-    );
-    res.status(201).json({ success: true, message: "Category added successfully", id: result.insertId });
+    const newCategory = await Category.create({
+      category_name,
+      subcategory_name,
+      description,
+      image
+    });
+    res.status(201).json({ success: true, message: "Category added successfully", id: newCategory._id });
   } catch (error) {
     res.status(400).json({ success: false, message: "Failed to add category", error: error.message });
   }
@@ -58,18 +49,18 @@ const updateCategory = async (req, res) => {
     const { id } = req.params;
     const { category_name, subcategory_name, description } = req.body;
 
-    let query = "UPDATE categories SET category_name=?, subcategory_name=?, description=?";
-    let params = [category_name, subcategory_name, description];
+    const updateData = { category_name, subcategory_name, description };
 
     if (req.file) {
-      query += ", image=?";
-      params.push(req.file.filename);
+      updateData.image = req.file.filename;
     }
 
-    query += " WHERE id=?";
-    params.push(id);
+    const updatedCategory = await Category.findByIdAndUpdate(id, updateData, { new: true });
+    
+    if (!updatedCategory) {
+      return res.status(404).json({ success: false, message: "Category not found" });
+    }
 
-    await db.query(query, params);
     res.status(200).json({ success: true, message: "Category updated successfully" });
   } catch (error) {
     res.status(400).json({ success: false, message: "Failed to update category", error: error.message });
@@ -79,11 +70,16 @@ const updateCategory = async (req, res) => {
 const deleteCategory = async (req, res) => {
   try {
     const { id } = req.params;
-    await db.query("DELETE FROM categories WHERE id=?", [id]);
+    const result = await Category.findByIdAndDelete(id);
+    
+    if (!result) {
+      return res.status(404).json({ success: false, message: "Category not found" });
+    }
+
     res.status(200).json({ success: true, message: "Category deleted successfully" });
   } catch (error) {
     res.status(400).json({ success: false, message: "Failed to delete category", error: error.message });
   }
 };
 
-module.exports = { getCategory, addCategory, updateCategory, deleteCategory,getProductsByCategory };
+module.exports = { getCategory, addCategory, updateCategory, deleteCategory, getProductsByCategory };

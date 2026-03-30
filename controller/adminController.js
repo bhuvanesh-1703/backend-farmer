@@ -1,4 +1,8 @@
-const db = require("../DB_connection/db");
+const User = require("../models/User");
+const Product = require("../models/Product");
+const Category = require("../models/Category");
+const Order = require("../models/Order");
+const Vendor = require("../models/Vendor");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const { sendEmail } = require("../nodeMailer/mailSender");
@@ -7,15 +11,13 @@ const { sendEmail } = require("../nodeMailer/mailSender");
 const adminLogin = async (req, res) => {
   try {
     const { email, password } = req.body;
-    // console.log(req.body);
     
-    const [users] = await db.query("SELECT * FROM users WHERE email = ? AND role = 'admin'", [email]);
+    const admin = await User.findOne({ email, role: 'admin' });
 
-    if (users.length === 0) {
+    if (!admin) {
       return res.status(404).json({ success: false, message: "Admin account not found" });
     }
 
-    const admin = users[0];
     const isMatch = await bcrypt.compare(password, admin.password);
     
     if (!isMatch) {
@@ -23,7 +25,7 @@ const adminLogin = async (req, res) => {
     }
 
     const token = jwt.sign(
-      { id: admin.id, role: 'admin' }, 
+      { id: admin._id, role: 'admin' }, 
       process.env.SECRET_KEY, 
       { expiresIn: "1d" }
     );
@@ -33,7 +35,7 @@ const adminLogin = async (req, res) => {
       message: "Admin login successful",
       data: { 
         token, 
-        admin: { id: admin.id, username: admin.username, email: admin.email, role: admin.role } 
+        admin: { id: admin._id, username: admin.username, email: admin.email, role: admin.role } 
       }
     });
   } catch (error) {
@@ -45,20 +47,20 @@ const adminLogin = async (req, res) => {
 // Dashboard Stats
 const getDashboardStats = async (req, res) => {
   try {
-    const [userRes] = await db.query("SELECT COUNT(*) as count FROM users");
-    const [productRes] = await db.query("SELECT COUNT(*) as count FROM products");
-    const [categoryRes] = await db.query("SELECT COUNT(*) as count FROM categories");
-    const [orderRes] = await db.query(
-      "SELECT COUNT(*) as count FROM orders WHERE order_status = 'Placed' OR order_status = 'Pending'"
-    );
+    const userCount = await User.countDocuments();
+    const productCount = await Product.countDocuments();
+    const categoryCount = await Category.countDocuments();
+    const pendingOrderCount = await Order.countDocuments({
+      order_status: { $in: ["Placed", "Pending"] }
+    });
 
     res.status(200).json({
       success: true,
       data: {
-        users: userRes[0].count,
-        products: productRes[0].count,
-        categories: categoryRes[0].count,
-        pendingOrders: orderRes[0].count
+        users: userCount,
+        products: productCount,
+        categories: categoryCount,
+        pendingOrders: pendingOrderCount
       }
     });
   } catch (error) {
@@ -77,22 +79,21 @@ const updateVendorStatus = async (req, res) => {
       return res.status(400).json({ success: false, message: "Invalid status value" });
     }
 
-    await db.query("UPDATE vendors SET status = ? WHERE id = ?", [status, id]);
-
-    // Fetch vendor details for email
-    const [vendors] = await db.query("SELECT username, email FROM vendors WHERE id = ?", [id]);
-    if (vendors.length > 0) {
-      const vendor = vendors[0];
-      const emailHtml = `
-        <h1>Vendor Account Update</h1>
-        <p>Hello ${vendor.username},</p>
-        <p>Your vendor account status has been updated to: <strong>${status.toUpperCase()}</strong>.</p>
-        ${status === 'approved' ? '<p>You can now log in and start adding your products!</p>' : ''}
-        <br/>
-        <p>Best Regards,<br/>Farmer Market Team</p>
-      `;
-      await sendEmail(vendor.email, "Vendor Status Update", emailHtml);
+    const vendor = await Vendor.findByIdAndUpdate(id, { status }, { new: true });
+    
+    if (!vendor) {
+      return res.status(404).json({ success: false, message: "Vendor not found" });
     }
+
+    const emailHtml = `
+      <h1>Vendor Account Update</h1>
+      <p>Hello ${vendor.username},</p>
+      <p>Your vendor account status has been updated to: <strong>${status.toUpperCase()}</strong>.</p>
+      ${status === 'approved' ? '<p>You can now log in and start adding your products!</p>' : ''}
+      <br/>
+      <p>Best Regards,<br/>Farmer Market Team</p>
+    `;
+    await sendEmail(vendor.email, "Vendor Status Update", emailHtml);
 
     res.status(200).json({ success: true, message: `Vendor status updated to ${status}` });
   } catch (error) {
@@ -111,9 +112,9 @@ const updateProductStatus = async (req, res) => {
       return res.status(400).json({ success: false, message: "Invalid status value" });
     }
 
-    const [result] = await db.query("UPDATE products SET status = ? WHERE id = ?", [status, id]);
+    const updatedProduct = await Product.findByIdAndUpdate(id, { status }, { new: true });
 
-    if (result.affectedRows === 0) {
+    if (!updatedProduct) {
       return res.status(404).json({ success: false, message: "Product not found" });
     }
 

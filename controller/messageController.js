@@ -1,9 +1,10 @@
-const db = require("../DB_connection/db");
+const Message = require("../models/Message");
+const Notification = require("../models/Notification");
 const { sendEmail } = require("../nodeMailer/mailSender");
 
 const getMessages = async (req, res) => {
   try {
-    const [messages] = await db.query("SELECT * FROM messages ORDER BY created_at DESC");
+    const messages = await Message.find().sort({ created_at: -1 });
     res.status(200).json({ success: true, message: "Messages fetched successfully", messages });
   } catch (error) {
     res.status(500).json({ success: false, message: "Failed to fetch messages", error: error.message });
@@ -14,13 +15,14 @@ const postMessage = async (req, res) => {
   try {
     const { name, email, phone, message, userId } = req.body;
     
-   
-    await db.query(
-      "INSERT INTO messages (name, email, phone, message, user_id) VALUES (?, ?, ?, ?, ?)",
-      [name, email, phone, message, userId || null]
-    );
+    const newMessage = await Message.create({
+      name,
+      email,
+      phone,
+      message,
+      user_id: userId || null
+    });
 
-  
     const userEmailHtml = `
       <div style="font-family: Arial, sans-serif; color: #333;">
         <h2 style="color: #2e7d32;">Hello ${name},</h2>
@@ -43,7 +45,10 @@ const postMessage = async (req, res) => {
 const deleteMessage = async (req, res) => {
   try {
     const { id } = req.params;
-    await db.query("DELETE FROM messages WHERE id = ?", [id]);
+    const result = await Message.findByIdAndDelete(id);
+    if (!result) {
+      return res.status(404).json({ success: false, message: "Message not found" });
+    }
     res.status(200).json({ success: true, message: "Message deleted successfully" });
   } catch (error) {
     res.status(500).json({ success: false, message: "Failed to delete message", error: error.message });
@@ -58,10 +63,11 @@ const replyToMessage = async (req, res) => {
       return res.status(400).json({ success: false, message: "User ID and content are required" });
     }
 
-    await db.query(
-      "INSERT INTO notifications (user_id, message_id, content) VALUES (?, ?, ?)",
-      [userId, messageId || null, content]
-    );
+    await Notification.create({
+      user_id: userId,
+      message_id: messageId || null,
+      content: content
+    });
 
     res.status(201).json({ success: true, message: "Reply sent to user notifications" });
   } catch (error) {

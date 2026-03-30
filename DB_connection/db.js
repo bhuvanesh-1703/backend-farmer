@@ -1,29 +1,18 @@
-const mysql = require("mysql2/promise");
+const mongoose = require("mongoose");
+require("dotenv").config();
 
-const db = mysql.createPool({
-  host: process.env.MYSQL_ADDON_HOST,
-  user: process.env.MYSQL_ADDON_USER,
-  password: process.env.MYSQL_ADDON_PASSWORD,
-  database: process.env.MYSQL_ADDON_DB,
-  port: process.env.MYSQL_ADDON_PORT,
-
-  waitForConnections: true,
-  connectionLimit: 5,
-  queueLimit: 0,
-  enableKeepAlive: true,
-  keepAliveInitialDelay: 10000 
-});
-
-// Test connection
-(async () => {
+const connectDB = async () => {
   try {
-    const conn = await db.getConnection();
-    console.log("✅ MySQL Connected");
-    conn.release();
+    const mongoURI = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/farmer_market";
+    await mongoose.connect(mongoURI);
+    console.log("✅ MongoDB Connected");
   } catch (err) {
-    console.log("❌ DB Connection Failed");
+    console.error("❌ MongoDB Connection Failed");
     console.error(err.message);
   }
-})();
+};
 
-module.exports = db;
+// Execute connection
+connectDB();
+
+module.exports = mongoose;

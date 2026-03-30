@@ -1,4 +1,5 @@
-const db = require("../DB_connection/db");
+const Vendor = require("../models/Vendor");
+const User = require("../models/User");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const { sendEmail } = require("../nodeMailer/mailSender");
@@ -12,15 +13,15 @@ const register = async (req, res) => {
       return res.status(400).json({ success: false, message: "ID Proof is required" });
     }
 
-    const [existingVendor] = await db.query("SELECT * FROM vendors WHERE email=?", [email]);
+    const existingVendor = await Vendor.findOne({ email });
 
-    if (existingVendor.length > 0) {
+    if (existingVendor) {
       return res.status(400).json({ success: false, message: "Email already registered as a vendor" });
     }
 
     // Check if email belongs to a user
-    const [existingUser] = await db.query("SELECT * FROM users WHERE email=?", [email]);
-    if (existingUser.length > 0) {
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
       return res.status(400).json({
         success: false,
         message: "Email already registered as a user. Please use a different email or log in as a user."
@@ -29,15 +30,19 @@ const register = async (req, res) => {
 
     const hashPassword = await bcrypt.hash(password, 10);
 
-    const [result] = await db.query(
-      "INSERT INTO vendors (username, email, phonenumber, shop_name, password, id_proof) VALUES (?,?,?,?,?,?)",
-      [username, email, phonenumber, shopName, hashPassword, idProof]
-    );
+    const newVendor = await Vendor.create({
+      username,
+      email,
+      phonenumber,
+      shop_name: shopName,
+      password: hashPassword,
+      id_proof: idProof
+    });
 
     res.status(201).json({
       success: true,
       message: "Vendor registered successfully. Please wait for approval.",
-      data: { id: result.insertId }
+      data: { id: newVendor._id }
     });
   } catch (err) {
     console.error("Vendor Registration Error:", err);
@@ -48,35 +53,26 @@ const register = async (req, res) => {
 const login = async (req, res) => {
   try {
     const { email, password } = req.body;
-    // console.log("Login attempt for email:", email);
-    const [vendors] = await db.query("SELECT * FROM vendors WHERE email = ?", [email]);
+    const vendor = await Vendor.findOne({ email });
 
-    // console.log("Vendors found:", vendors.length);
-    
-    if (vendors.length === 0) {
-      // console.log("Vendor not found");
+    if (!vendor) {
       return res.status(400).json({ success: false, message: "Vendor not found" });
     }
 
-    const vendor = vendors[0];
-    // console.log("Stored hash:", vendor.password);
     const isMatch = await bcrypt.compare(password, vendor.password);
-    // console.log("Password match:", isMatch);
     
     if (!isMatch) {
       return res.status(400).json({ success: false, message: "Invalid password" });
     }
 
-    // console.log("SECRET_KEY during login:", process.env.SECRET_KEY);
-
-    const token = jwt.sign({ vendor_id: vendor.id }, process.env.SECRET_KEY, {
+    const token = jwt.sign({ vendor_id: vendor._id }, process.env.SECRET_KEY, {
       expiresIn: "1d",
     });
 
     return res.status(200).json({
       success: true,
       message: "Login successful",
-      data: { token, vendorData: vendors[0] },
+      data: { token, vendorData: vendor },
     });
   } catch (error) {
     console.error("Vendor Login Error:", error);
@@ -86,7 +82,7 @@ const login = async (req, res) => {
 
 const getAllVendors = async (req, res) => {
   try {
-    const [vendors] = await db.query("SELECT * FROM vendors ORDER BY created_at DESC");
+    const vendors = await Vendor.find().sort({ created_at: -1 });
     res.status(200).json({ success: true, data: vendors });
   } catch (err) {
     console.error("Get All Vendors Error:", err);
@@ -98,27 +94,28 @@ const updateVendorStatus = async (req, res) => {
   try {
     const { id } = req.params;
     const { status } = req.body;
-    // console.log(status);
-    
 
     if (!["pending", "approved", "rejected"].includes(status)) {
       return res.status(400).json({ success: false, message: "Invalid status" });
     }
 
-    await db.query("UPDATE vendors SET status = ? WHERE id = ?", [status, id]);
+    const vendor = await Vendor.findByIdAndUpdate(id, { status }, { new: true });
+    
+    if (!vendor) {
+      return res.status(404).json({ success: false, message: "Vendor not found" });
+    }
 
-    const [vendor] = await db.query("SELECT * FROM vendors WHERE id = ?", [id]);
-    const email = vendor[0].email;
+    const email = vendor.email;
     const emailhtml = `
       <h1>Vendor Status Updated</h1>
-      <p>hello ${vendor[0].username},</p>
+      <p>hello ${vendor.username},</p>
       <p>Your vendor status has been updated to ${status}</p>
       <br/>
       <p>Thank you for using our platform.</p>
       <p>The Farmer Market Team</p>
     `;
 
-    await sendEmail(email, "Vendor Status Updated",emailhtml);
+    await sendEmail(email, "Vendor Status Updated", emailhtml);
     res.status(200).json({ success: true, message: `Vendor status updated to ${status}` });
   } catch (err) {
     console.error("Update Vendor Status Error:", err);
@@ -129,13 +126,13 @@ const updateVendorStatus = async (req, res) => {
 const getVendorById = async (req, res) => {
   try {
     const { id } = req.params;
-    const [vendors] = await db.query("SELECT id, username, email, phonenumber, shop_name, status, created_at FROM vendors WHERE id = ?", [id]);
+    const vendor = await Vendor.findById(id).select("username email phonenumber shop_name status created_at");
     
-    if (vendors.length === 0) {
+    if (!vendor) {
       return res.status(404).json({ success: false, message: "Vendor not found" });
     }
 
-    res.status(200).json({ success: true, data: vendors[0] });
+    res.status(200).json({ success: true, data: vendor });
   } catch (err) {
     console.error("Get Vendor By Id Error:", err);
     res.status(500).json({ success: false, message: "Failed to fetch vendor details" });
@@ -147,17 +144,20 @@ const updateVendorProfile = async (req, res) => {
     const { id } = req.params;
     const { username, phonenumber, shopName } = req.body;
 
-    await db.query(
-      "UPDATE vendors SET username = ?, phonenumber = ?, shop_name = ? WHERE id = ?",
-      [username, phonenumber, shopName, id]
-    );
+    const updatedVendor = await Vendor.findByIdAndUpdate(
+      id,
+      { username, phonenumber, shop_name: shopName },
+      { new: true }
+    ).select("username email phonenumber shop_name status");
 
-    const [updatedVendor] = await db.query("SELECT id, username, email, phonenumber, shop_name, status FROM vendors WHERE id = ?", [id]);
+    if (!updatedVendor) {
+      return res.status(404).json({ success: false, message: "Vendor not found" });
+    }
 
     res.status(200).json({ 
       success: true, 
       message: "Profile updated successfully",
-      data: updatedVendor[0]
+      data: updatedVendor
     });
   } catch (err) {
     console.error("Update Vendor Profile Error:", err);

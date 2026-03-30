@@ -1,4 +1,5 @@
-const db = require("../DB_connection/db");
+const User = require("../models/User");
+const Vendor = require("../models/Vendor");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const { sendEmail } = require("../nodeMailer/mailSender");
@@ -7,7 +8,6 @@ const { sendEmail } = require("../nodeMailer/mailSender");
 
 const register = async (req, res) => {
   try {
-
     const { username, name, email, phonenumber, password } = req.body;
     const finalUsername = username || name;
 
@@ -19,12 +19,9 @@ const register = async (req, res) => {
     }
 
     // Check existing user
-    const [existingUser] = await db.query(
-      "SELECT * FROM users WHERE email = ?",
-      [email]
-    );
+    const existingUser = await User.findOne({ email });
 
-    if (existingUser.length > 0) {
+    if (existingUser) {
       return res.status(400).json({
         success: false,
         message: "Email already registered as a user"
@@ -32,12 +29,9 @@ const register = async (req, res) => {
     }
 
     // Check if email belongs to a vendor (Optional sync check)
-    const [existingVendor] = await db.query(
-      "SELECT * FROM vendors WHERE email = ?",
-      [email]
-    );
+    const existingVendor = await Vendor.findOne({ email });
 
-    if (existingVendor.length > 0) {
+    if (existingVendor) {
       return res.status(400).json({
         success: false,
         message: "Email already registered as a vendor. Please use a different email or log in as a vendor."
@@ -48,14 +42,15 @@ const register = async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, 10);
 
     // Insert user
-    const [result] = await db.query(
-      "INSERT INTO users (username,email,password,phonenumber) VALUES (?,?,?,?)",
-      [finalUsername, email, hashedPassword, phonenumber]
-    );
+    const newUser = await User.create({
+      username: finalUsername,
+      email,
+      password: hashedPassword,
+      phonenumber
+    });
 
     // Send welcome email (optional)
     try {
-
       const emailHtml = `
       <h1>Welcome to Farmer Market, ${finalUsername}!</h1>
       <p>Thank you for registering.</p>
@@ -65,7 +60,6 @@ const register = async (req, res) => {
       `;
 
       await sendEmail(email, "Welcome to Farmer Market", emailHtml);
-
     } catch (emailError) {
       console.log("Email sending failed:", emailError.message);
     }
@@ -73,13 +67,11 @@ const register = async (req, res) => {
     return res.status(201).json({
       success: true,
       message: "User registered successfully",
-      userId: result.insertId
+      userId: newUser._id
     });
 
   } catch (error) {
-
     console.error("Register Error:", error);
-
     return res.status(500).json({
       success: false,
       message: "Failed to create user",
@@ -92,31 +84,24 @@ const register = async (req, res) => {
 // ================= LOGIN =================
 
 const login = async (req, res) => {
-
   try {
-
     const { email, password } = req.body;
 
     if (!email || !password) {
       return res.status(400).json({
-        success:false,
-        message:"Email and password required"
+        success: false,
+        message: "Email and password required"
       });
     }
 
-    const [users] = await db.query(
-      "SELECT * FROM users WHERE email = ?",
-      [email]
-    );
+    const user = await User.findOne({ email });
 
-    if (users.length === 0) {
+    if (!user) {
       return res.status(400).json({
         success: false,
         message: "User not found"
       });
     }
-
-    const user = users[0];
 
     const isMatch = await bcrypt.compare(password, user.password);
 
@@ -128,7 +113,7 @@ const login = async (req, res) => {
     }
 
     const token = jwt.sign(
-      { user_id: user.id },
+      { user_id: user._id },
       process.env.SECRET_KEY,
       { expiresIn: "1d" }
     );
@@ -139,7 +124,7 @@ const login = async (req, res) => {
       data: {
         token,
         user: {
-          id: user.id,
+          id: user._id,
           username: user.username,
           email: user.email
         }
@@ -147,17 +132,13 @@ const login = async (req, res) => {
     });
 
   } catch (error) {
-
     console.error("Login Error:", error);
-
     return res.status(500).json({
-      success:false,
-      message:"Failed to login",
-      error:error.message
+      success: false,
+      message: "Failed to login",
+      error: error.message
     });
-
   }
-
 };
 
 module.exports = { register, login };

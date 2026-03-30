@@ -1,104 +1,65 @@
-const bcrypt = require("bcrypt");
-const db = require("../DB_connection/db");
+const User = require("../models/User");
 
 const getUsers = async (req, res) => {
   try {
-    const [users] = await db.query("SELECT * FROM users");
-
-    res.status(200).json({ success: true, message: "User get successfully", users });
+    const users = await User.find().sort({ created_at: -1 });
+    res.status(200).json({ success: true, message: "Users fetched successfully", users });
   } catch (error) {
-    res.status(400).json({ success: false, message: "User failed to get" });
+    res.status(500).json({ success: false, message: "Failed to fetch users", error: error.message });
   }
 };
 
-const postUsers = async (req, res) => {
+const deleteUser = async (req, res) => {
   try {
-    const { username, email, password, phonenumber } = req.body;
-
-    // console.log(req.body);
-
-    const [existingUser] = await db.query(
-      "SELECT * FROM users WHERE email = ?",
-      [email],
-    );
-
-    if (existingUser.length > 0) {
-      return res.status(400).json({success: false,
-  message: "Email already registered",
-      });
+    const { id } = req.params;
+    const result = await User.findByIdAndDelete(id);
+    if (!result) {
+      return res.status(404).json({ success: false, message: "User not found" });
     }
-
-    const hashPassword = await bcrypt.hash(password, 10);
-
-    const [users] = await db.query(
-      "INSERT INTO users (username,email,password,phonenumber) VALUES (?,?,?,?)",
-      [username, email, hashPassword, phonenumber],
-    );
-
-    res
-      .status(200)
-      .json({ success: true, message: "user register success", users });
-    // console.log("users==", users);
+    res.status(200).json({ success: true, message: "User deleted successfully" });
   } catch (error) {
-    res.status(400).json({ success: false, message: "user register failed", error: error.message });
+    res.status(500).json({ success: false, message: "Failed to delete user", error: error.message });
   }
 };
 
-const updateUsers = async (req, res) => {
+const getUserById = async (req, res) => {
   try {
-    const userId = req.params.id;
-
-    // Whitelist valid columns to prevent SQL errors from extra fields in req.body
-    const validColumns = ["username", "email", "password", "phonenumber", "role", "status"];
-    const updateData = {};
-    Object.keys(req.body).forEach(key => {
-      if (validColumns.includes(key)) {
-        updateData[key] = req.body[key];
-      }
-    });
-
-    if (Object.keys(updateData).length === 0) {
-      return res.status(400).json({ success: false, message: "No valid fields to update" });
+    const { id } = req.params;
+    const user = await User.findById(id).select("-password");
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
     }
+    res.status(200).json({ success: true, data: user });
+  } catch (error) {
+    console.error("Get User By Id Error:", error);
+    res.status(500).json({ success: false, message: "Failed to fetch user details", error: error.message });
+  }
+};
 
-    const [userUpdate] = await db.query("UPDATE users SET ? WHERE id = ?", [
-      updateData,
-      userId,
-    ]);
+const updateProfile = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { username, phonenumber } = req.body;
 
-    if (userUpdate.affectedRows === 0) {
+    const updatedUser = await User.findByIdAndUpdate(
+      id,
+      { username, phonenumber },
+      { new: true }
+    ).select("-password");
+
+    if (!updatedUser) {
       return res.status(404).json({ success: false, message: "User not found" });
     }
 
-    const [updatedUser] = await db.query("SELECT * FROM users WHERE id = ?", [
-      userId,
-    ]);
-
-    res.status(200).json({ success: true, message: "User updated", data: updatedUser });
-  } catch (err) {
-    res.status(400).json({ success: false, message: "Update failed", error: err.message });
-  }
-};
-const deleteUsers = async (req, res) => {
-  try {
-    const userId = req.params.id;
-
-    const [userDel] = await db.query("DELETE FROM users WHERE id = ?", [userId]);
-
-    // console.log("delete");
-
-   
-    if (userDel.affectedRows === 0) {
-      return res.status(404).json({success: false, message: "User not found",
-      });
-    }
-
-    res.status(200).json({success: true, message: "User deleted"});
-  } catch (err) {
-    res.status(400).json({
-      success: false, message: "Failed to delete user", error: err.message,
+    res.status(200).json({
+      success: true,
+      message: "Profile updated successfully",
+      data: updatedUser
     });
+  } catch (error) {
+    console.error("Update Profile Error:", error);
+    res.status(500).json({ success: false, message: "Failed to update profile", error: error.message });
   }
 };
 
-module.exports = { getUsers, postUsers, updateUsers, deleteUsers };
+module.exports = { getUsers, deleteUser, getUserById, updateProfile };

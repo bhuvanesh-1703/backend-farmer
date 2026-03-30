@@ -1,4 +1,5 @@
 require("dotenv").config();   // FIRST LINE
+require("./DB_connection/db");
 
 const express = require("express");
 const app = express();
@@ -17,7 +18,7 @@ const notificationRouter=require("./router/notificationRoute")
 
 
 
-app.use(cors({ origin: 'https://final-former-websites.vercel.app' }));
+app.use(cors());
 app.use(express.json());
 
 app.get("/", (req, res) => {

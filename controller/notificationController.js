@@ -1,4 +1,4 @@
-const db = require("../DB_connection/db");
+const Notification = require("../models/Notification");
 
 const getNotifications = async (req, res) => {
   try {
@@ -8,10 +8,8 @@ const getNotifications = async (req, res) => {
       return res.status(400).json({ success: false, message: "User ID is required" });
     }
 
-    const [notifications] = await db.query(
-      "SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC",
-      [userId]
-    );
+    const notifications = await Notification.find({ user_id: userId })
+      .sort({ created_at: -1 });
 
     res.status(200).json({ success: true, notifications });
   } catch (error) {
@@ -24,10 +22,11 @@ const markAsRead = async (req, res) => {
   try {
     const { id } = req.params;
 
-    await db.query(
-      "UPDATE notifications SET is_read = TRUE WHERE id = ?",
-      [id]
-    );
+    const notification = await Notification.findByIdAndUpdate(id, { is_read: true }, { new: true });
+    
+    if (!notification) {
+      return res.status(404).json({ success: false, message: "Notification not found" });
+    }
 
     res.status(200).json({ success: true, message: "Notification marked as read" });
   } catch (error) {
@@ -40,10 +39,11 @@ const deleteNotification = async (req, res) => {
   try {
     const { id } = req.params;
 
-    await db.query(
-      "DELETE FROM notifications WHERE id = ?",
-      [id]
-    );
+    const result = await Notification.findByIdAndDelete(id);
+    
+    if (!result) {
+      return res.status(404).json({ success: false, message: "Notification not found" });
+    }
 
     res.status(200).json({ success: true, message: "Notification deleted" });
   } catch (error) {
