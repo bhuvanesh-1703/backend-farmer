@@ -1,11 +1,12 @@
 const Product = require("../models/Product");
 const Category = require("../models/Category");
 const Vendor = require("../models/Vendor");
+const mongoose = require("mongoose");
 
 const getProduct = async (req, res) => {
   try {
     const { status, vendorId } = req.query;
-    
+
     let filter = {};
     if (status) filter.status = status;
     if (vendorId) filter.vendor_id = vendorId;
@@ -37,25 +38,54 @@ const addProduct = async (req, res) => {
     } else if (req.file) {
       imageArr = [req.file.filename];
     }
-    
+
     if (imageArr.length === 0) {
-      return res.status(400).json({ success: false, message: "At least one image is required" });
+      return res
+        .status(400)
+        .json({ success: false, message: "At least one image is required" });
     }
 
-    const { name, price, stock, category, description, vendor_id, added_by } = req.body;
-    const productStatus = added_by === 'admin' ? 'approved' : 'pending';
+    const { name, price, stock, category, description, vendor_id, added_by } =
+      req.body;
+    const productStatus = added_by === "admin" ? "approved" : "pending";
 
-    // If vendor is adding product, check if vendor is approved
-    if (added_by === 'vendor' && vendor_id) {
+    // Validate category is not empty and is a valid ObjectId
+    if (!category) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Category ID is required" });
+    }
+
+    // Check if category is a valid MongoDB ObjectId
+    const mongoose = require("mongoose");
+    if (!mongoose.Types.ObjectId.isValid(category)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid category ID: "${category}". Please select a valid category.`,
+      });
+    }
+
+    // Verify category exists
+    const categoryExists = await Category.findById(category);
+    if (!categoryExists) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Selected category does not exist" });
+    }
+
+    // check if vendor is approved
+    if (added_by === "vendor" && vendor_id) {
       const vendor = await Vendor.findById(vendor_id);
       if (!vendor) {
-        return res.status(404).json({ success: false, message: "Vendor not found" });
+        return res
+          .status(404)
+          .json({ success: false, message: "Vendor not found" });
       }
-      if (vendor.status !== 'approved') {
+      if (vendor.status !== "approved") {
         return res.status(403).json({
           success: false,
           message: `Cannot add products. Your vendor account status is "${vendor.status}". Please wait for admin approval.`,
-          vendorStatus: vendor.status
+          vendorStatus: vendor.status,
         });
       }
     }
@@ -68,13 +98,16 @@ const addProduct = async (req, res) => {
       description,
       image: imageArr,
       vendor_id: vendor_id || null,
-      added_by: added_by || 'admin',
-      status: productStatus
+      added_by: added_by || "admin",
+      status: productStatus,
     });
 
     res.status(201).json({
       success: true,
-      message: added_by === 'admin' ? "Product added successfully" : "Product submitted for approval",
+      message:
+        added_by === "admin"
+          ? "Product added successfully"
+          : "Product submitted for approval",
       id: newProduct._id,
     });
   } catch (error) {
@@ -97,7 +130,7 @@ const updateProduct = async (req, res) => {
       price,
       stock,
       categories_id: category,
-      description
+      description,
     };
 
     let imageArr = [];
@@ -111,13 +144,19 @@ const updateProduct = async (req, res) => {
       updateData.image = imageArr;
     }
 
-    const updatedProduct = await Product.findByIdAndUpdate(id, updateData, { new: true });
+    const updatedProduct = await Product.findByIdAndUpdate(id, updateData, {
+      new: true,
+    });
 
     if (!updatedProduct) {
-      return res.status(404).json({ success: false, message: "Product not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Product not found" });
     }
 
-    res.status(200).json({ success: true, message: "Product updated successfully" });
+    res
+      .status(200)
+      .json({ success: true, message: "Product updated successfully" });
   } catch (error) {
     console.error("Update Product Error:", error);
     res.status(400).json({
@@ -133,9 +172,13 @@ const deleteProduct = async (req, res) => {
     const { id } = req.params;
     const result = await Product.findByIdAndDelete(id);
     if (!result) {
-      return res.status(404).json({ success: false, message: "Product not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Product not found" });
     }
-    res.status(200).json({ success: true, message: "Product deleted successfully" });
+    res
+      .status(200)
+      .json({ success: true, message: "Product deleted successfully" });
   } catch (error) {
     res.status(400).json({
       success: false,
@@ -153,17 +196,19 @@ const getProductById = async (req, res) => {
       .populate("vendor_id", "shop_name");
 
     if (!product) {
-      return res.status(404).json({ success: false, message: "Product not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Product not found" });
     }
 
     // Flattening for compatibility with frontend if necessary
     const productData = product.toObject();
     if (productData.categories_id) {
-        productData.category_name = productData.categories_id.category_name;
-        productData.subcategory_name = productData.categories_id.subcategory_name;
+      productData.category_name = productData.categories_id.category_name;
+      productData.subcategory_name = productData.categories_id.subcategory_name;
     }
     if (productData.vendor_id) {
-        productData.vendor_name = productData.vendor_id.shop_name;
+      productData.vendor_name = productData.vendor_id.shop_name;
     }
 
     res.status(200).json({
@@ -187,16 +232,26 @@ const updateProductStatus = async (req, res) => {
     const { status } = req.body;
 
     if (!["pending", "approved", "rejected"].includes(status)) {
-      return res.status(400).json({ success: false, message: "Invalid status value" });
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid status value" });
     }
 
-    const updatedProduct = await Product.findByIdAndUpdate(id, { status }, { new: true });
+    const updatedProduct = await Product.findByIdAndUpdate(
+      id,
+      { status },
+      { new: true },
+    );
 
     if (!updatedProduct) {
-      return res.status(404).json({ success: false, message: "Product not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Product not found" });
     }
 
-    res.status(200).json({ success: true, message: `Product status updated to ${status}` });
+    res
+      .status(200)
+      .json({ success: true, message: `Product status updated to ${status}` });
   } catch (error) {
     console.error("Update Product Status Error:", error);
     res.status(400).json({
@@ -207,4 +262,11 @@ const updateProductStatus = async (req, res) => {
   }
 };
 
-module.exports = { getProduct, addProduct, updateProduct, deleteProduct, getProductById, updateProductStatus };
+module.exports = {
+  getProduct,
+  addProduct,
+  updateProduct,
+  deleteProduct,
+  getProductById,
+  updateProductStatus,
+};
