@@ -57,7 +57,6 @@ const addProduct = async (req, res) => {
     }
 
     // Check if category is a valid MongoDB ObjectId
-    const mongoose = require("mongoose");
     if (!mongoose.Types.ObjectId.isValid(category)) {
       return res.status(400).json({
         success: false,
