@@ -45,6 +45,21 @@ const addProduct = async (req, res) => {
     const { name, price, stock, category, description, vendor_id, added_by } = req.body;
     const productStatus = added_by === 'admin' ? 'approved' : 'pending';
 
+    // If vendor is adding product, check if vendor is approved
+    if (added_by === 'vendor' && vendor_id) {
+      const vendor = await Vendor.findById(vendor_id);
+      if (!vendor) {
+        return res.status(404).json({ success: false, message: "Vendor not found" });
+      }
+      if (vendor.status !== 'approved') {
+        return res.status(403).json({
+          success: false,
+          message: `Cannot add products. Your vendor account status is "${vendor.status}". Please wait for admin approval.`,
+          vendorStatus: vendor.status
+        });
+      }
+    }
+
     const newProduct = await Product.create({
       name,
       price,
