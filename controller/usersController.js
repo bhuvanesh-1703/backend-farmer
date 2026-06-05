@@ -60,6 +60,8 @@ const updateProfile = async (req, res) => {
     console.error("Update Profile Error:", error);
     res.status(500).json({ success: false, message: "Failed to update profile", error: error.message });
   }
+
+  
 };
 
 module.exports = { getUsers, deleteUser, getUserById, updateProfile };
