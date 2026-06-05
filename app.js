@@ -15,14 +15,25 @@ const messageRouter=require("./router/messageRoute")
 const mailRouter=require("./nodeMailer/mailRoute")
 const adminRouter=require("./router/adminRoute")
 const notificationRouter=require("./router/notificationRoute")
-
-
+const allowedOrigins = [
+  "http://localhost:5173", // Local frontend
+  "https://final-former-websites.vercel.app" // Production frontend
+];
 
 app.use(cors({
-  origin: [
-    "http://localhost:5173", // Local frontend
-    "https://final-former-websites.vercel.app" // Production frontend
-  ],
+  origin: (origin, callback) => {
+    // Allow requests with no origin (like mobile apps, curl, or postman)
+    if (!origin) return callback(null, true);
+    
+    const isAllowed = allowedOrigins.includes(origin) || 
+      /^https:\/\/final-former-websites-.*\.vercel\.app$/.test(origin);
+      
+    if (isAllowed) {
+      callback(null, true);
+    } else {
+      callback(null, false);
+    }
+  },
   credentials: true
 }));
 app.use(express.json());
