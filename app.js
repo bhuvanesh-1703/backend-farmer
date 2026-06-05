@@ -22,7 +22,7 @@ const allowedOrigins = [
 
 app.use(cors({
   origin: (origin, callback) => {
-    // Allow requests with no origin (like mobile apps, curl, or postman)
+    
     if (!origin) return callback(null, true);
     
     const isAllowed = allowedOrigins.includes(origin) || 
